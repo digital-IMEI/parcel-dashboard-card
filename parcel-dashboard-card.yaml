@@ -1,0 +1,917 @@
+type: custom:button-card
+
+show_icon: false
+show_name: false
+show_state: false
+
+tap_action:
+  action: none
+
+styles:
+  card:
+    - --pkg-card-height: |
+        [[[
+          const timeZone = 'Europe/Amsterdam';
+
+          const incoming =
+            states['sensor.parcel_aggregator_incoming_parcels']
+              ?.attributes?.parcels || [];
+
+          const awaiting =
+            states['sensor.parcel_aggregator_awaiting_pickup']
+              ?.attributes?.parcels || [];
+
+          const delivered =
+            states['sensor.parcel_aggregator_delivered_parcels']
+              ?.attributes?.parcels || [];
+
+          const parseDate = (value) => {
+            if (!value) return null;
+            const d = new Date(value);
+            return isNaN(d.getTime()) ? null : d;
+          };
+
+          const zonedParts = (value) => {
+            const d = value instanceof Date ? value : parseDate(value);
+            if (!d) return null;
+
+            const parts = new Intl.DateTimeFormat('en-CA', {
+              timeZone,
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            }).formatToParts(d);
+
+            const get = (type) =>
+              Number(parts.find((p) => p.type === type)?.value);
+
+            return {
+              year: get('year'),
+              month: get('month'),
+              day: get('day')
+            };
+          };
+
+          const dateNumber = (parts) => {
+            if (!parts) return null;
+            return parts.year * 10000 + parts.month * 100 + parts.day;
+          };
+
+          const todayNumber = dateNumber(zonedParts(new Date()));
+
+          const carrierName = (carrier) => {
+            const c = String(carrier || '').toLowerCase();
+            if (c.includes('postnl')) return 'PostNL';
+            if (c.includes('dhl')) return 'DHL';
+            if (c.includes('dpd')) return 'DPD';
+            if (c.includes('gls')) return 'GLS';
+            if (c.includes('dragonfly')) return 'Dragonfly';
+            return carrier || 'Pakket';
+          };
+
+          const senderText = (sender) => {
+            if (sender && typeof sender === 'object') {
+              return sender.name || '';
+            }
+            return sender || '';
+          };
+
+          const parcelKey = (p) => {
+            if (p.url) return String(p.url);
+
+            return [
+              carrierName(p.carrier),
+              senderText(p.sender),
+              p.receiver || '',
+              p.planned_from || '',
+              p.planned_to || '',
+              p.delivered_at || '',
+              p.pickup_point || ''
+            ].join('|');
+          };
+
+          const isReadyForPickup = (p) =>
+            p.delivered !== true &&
+            p.status === 'at_pickup_point' &&
+            p.pickup === true &&
+            Boolean(p.pickup_point);
+
+          const deliveredKeys = new Set(
+            delivered.map((p) => parcelKey(p))
+          );
+
+          const seen = new Set();
+          let count = 0;
+
+          // 1. Ready for pickup
+          for (const p of [...awaiting, ...incoming]) {
+            const key = parcelKey(p);
+
+            if (
+              seen.has(key) ||
+              deliveredKeys.has(key) ||
+              !isReadyForPickup(p)
+            ) {
+              continue;
+            }
+
+            seen.add(key);
+            count++;
+          }
+
+          // 2. Delivered / collected today
+          for (const p of delivered) {
+            const key = parcelKey(p);
+            if (seen.has(key)) continue;
+
+            const deliveredNumber = dateNumber(
+              zonedParts(p.delivered_at)
+            );
+
+            if (deliveredNumber !== todayNumber) continue;
+
+            seen.add(key);
+            count++;
+          }
+
+          // 3. Remaining active parcels
+          for (const p of incoming) {
+            const key = parcelKey(p);
+            if (seen.has(key)) continue;
+
+            if (p.delivered === true || p.status === 'delivered') {
+              continue;
+            }
+
+            const dateValue = p.planned_from || p.planned_to || null;
+            const plannedNumber = dateNumber(zonedParts(dateValue));
+
+            if (plannedNumber && plannedNumber < todayNumber) {
+              continue;
+            }
+
+            seen.add(key);
+            count++;
+          }
+
+          const amount = Math.max(count, 1);
+          return `${(amount * 64) - 8}px`;
+        ]]]
+
+    - height: var(--pkg-card-height)
+    - min-height: var(--pkg-card-height)
+    - max-height: var(--pkg-card-height)
+    - padding: 6px 16px 6px 8px
+    - overflow: hidden
+    - border-radius: 12px
+    - box-sizing: border-box
+
+  grid:
+    - grid-template-areas: '"packages"'
+    - grid-template-columns: 100%
+    - grid-template-rows: 100%
+    - width: 100%
+    - height: 100%
+
+  custom_fields:
+    packages:
+      - width: 100%
+      - height: 100%
+      - min-width: 0
+      - text-align: left
+      - align-self: stretch
+      - justify-self: stretch
+
+custom_fields:
+  packages: |
+    [[[
+      const items = [];
+
+      const timeZone = 'Europe/Amsterdam';
+      const dateLocale = 'en-GB';
+      const completedColor = '#4caf50';
+
+      // =========================================================
+      // Helpers
+      // =========================================================
+
+      const parseDate = (value) => {
+        if (!value) return null;
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? null : d;
+      };
+
+      const zonedParts = (value) => {
+        const d = value instanceof Date ? value : parseDate(value);
+        if (!d) return null;
+
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).formatToParts(d);
+
+        const get = (type) =>
+          Number(parts.find((p) => p.type === type)?.value);
+
+        return {
+          year: get('year'),
+          month: get('month'),
+          day: get('day')
+        };
+      };
+
+      const dateNumber = (parts) => {
+        if (!parts) return null;
+        return parts.year * 10000 + parts.month * 100 + parts.day;
+      };
+
+      const weekdayText = (parts) => {
+        if (!parts) return '';
+
+        const d = new Date(
+          Date.UTC(parts.year, parts.month - 1, parts.day, 12)
+        );
+
+        return d.toLocaleDateString(dateLocale, {
+          weekday: 'short',
+          timeZone: 'UTC'
+        });
+      };
+
+      const timeText = (value) => {
+        if (!value) return '';
+
+        const d = parseDate(value);
+        if (!d) return '';
+
+        return d.toLocaleTimeString('nl-NL', {
+          timeZone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+      };
+
+      const escapeHtml = (value) =>
+        String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+
+      const durationHours = (from, to) => {
+        const f = parseDate(from);
+        const t = parseDate(to);
+
+        if (!f || !t) return null;
+        return (t.getTime() - f.getTime()) / 3600000;
+      };
+
+      // =========================================================
+      // Carrier styling
+      // =========================================================
+
+      const carrierColor = (carrier) => {
+        const c = String(carrier || '').toLowerCase();
+
+        if (c.includes('postnl')) return '#FF6200';
+        if (c.includes('dhl')) return '#FFCC00';
+        if (c.includes('dpd')) return '#DC0032';
+        if (c.includes('gls')) return '#1026B3';
+        if (c.includes('dragonfly')) return '#916BC6';
+
+        return '#9E9E9E';
+      };
+
+      const carrierName = (carrier) => {
+        const c = String(carrier || '').toLowerCase();
+
+        if (c.includes('postnl')) return 'PostNL';
+        if (c.includes('dhl')) return 'DHL';
+        if (c.includes('dpd')) return 'DPD';
+        if (c.includes('gls')) return 'GLS';
+        if (c.includes('dragonfly')) return 'Dragonfly';
+
+        return carrier || 'Pakket';
+      };
+
+      const senderName = (sender, carrier) => {
+        if (sender && typeof sender === 'object') {
+          sender = sender.name;
+        }
+
+        return sender || `${carrierName(carrier)} pakket`;
+      };
+
+      const senderText = (sender) => {
+        if (sender && typeof sender === 'object') {
+          return sender.name || '';
+        }
+        return sender || '';
+      };
+
+      // =========================================================
+      // Parcel identity
+      //
+      // Tracking URL is used when available. Barcodes are not used.
+      // =========================================================
+
+      const parcelKey = (p) => {
+        if (p.url) return String(p.url);
+
+        return [
+          carrierName(p.carrier),
+          senderText(p.sender),
+          p.receiver || '',
+          p.planned_from || '',
+          p.planned_to || '',
+          p.delivered_at || '',
+          p.pickup_point || ''
+        ].join('|');
+      };
+
+      // =========================================================
+      // Pickup logic
+      //
+      // pickup=true by itself only means the destination can be a
+      // pickup point. A parcel is only ready for pickup when all
+      // four conditions below are true.
+      // =========================================================
+
+      const isReadyForPickup = (p) =>
+        p.delivered !== true &&
+        p.status === 'at_pickup_point' &&
+        p.pickup === true &&
+        Boolean(p.pickup_point);
+
+      const isPickupDestination = (p) =>
+        p.delivered !== true &&
+        p.pickup === true &&
+        Boolean(p.pickup_point);
+
+      // =========================================================
+      // Current date
+      // =========================================================
+
+      const todayParts = zonedParts(new Date());
+      const todayNumber = dateNumber(todayParts);
+
+      // =========================================================
+      // Parcel Aggregator sensors
+      // =========================================================
+
+      const incoming =
+        states['sensor.parcel_aggregator_incoming_parcels']
+          ?.attributes?.parcels || [];
+
+      const awaitingPickup =
+        states['sensor.parcel_aggregator_awaiting_pickup']
+          ?.attributes?.parcels || [];
+
+      const deliveredParcels =
+        states['sensor.parcel_aggregator_delivered_parcels']
+          ?.attributes?.parcels || [];
+
+      const deliveredKeys = new Set(
+        deliveredParcels.map((p) => parcelKey(p))
+      );
+
+      const seen = new Set();
+
+      // =========================================================
+      // 1. Ready for pickup
+      //
+      // Always first, shown on the current day, green closed box.
+      // =========================================================
+
+      for (const p of [...awaitingPickup, ...incoming]) {
+        const key = parcelKey(p);
+
+        if (
+          seen.has(key) ||
+          deliveredKeys.has(key) ||
+          !isReadyForPickup(p)
+        ) {
+          continue;
+        }
+
+        seen.add(key);
+
+        items.push({
+          sender: senderName(p.sender, p.carrier),
+          displayStatus: 'Afhalen',
+          color: completedColor,
+          icon: 'mdi:package-variant-closed',
+          secondaryIcon: 'mdi:map-marker-outline',
+          secondaryText: p.pickup_point,
+          priority: 0,
+          sort: 0,
+          dateParts: todayParts
+        });
+      }
+
+      // =========================================================
+      // 2. Delivered / collected today
+      //
+      // Green open box. The check icon stays neutral.
+      // =========================================================
+
+      for (const p of deliveredParcels) {
+        const key = parcelKey(p);
+        if (seen.has(key)) continue;
+
+        const deliveredParts = zonedParts(p.delivered_at);
+        const deliveredNumber = dateNumber(deliveredParts);
+
+        if (deliveredNumber !== todayNumber) continue;
+
+        seen.add(key);
+
+        const wasPickup =
+          p.pickup === true &&
+          Boolean(p.pickup_point);
+
+        items.push({
+          sender: senderName(p.sender, p.carrier),
+          displayStatus: wasPickup ? 'Afgehaald' : 'Bezorgd',
+          color: completedColor,
+          icon: 'mdi:package-variant',
+          secondaryIcon: 'mdi:check-circle-outline',
+          secondaryText:
+            `${wasPickup ? 'Afgehaald' : 'Bezorgd'} om ${timeText(p.delivered_at)}`,
+          priority: 1,
+          sort: parseDate(p.delivered_at)?.getTime() || 0,
+          dateParts: todayParts
+        });
+      }
+
+      // =========================================================
+      // 3. Remaining active parcels
+      // =========================================================
+
+      for (const p of incoming) {
+        const key = parcelKey(p);
+        if (seen.has(key)) continue;
+
+        if (p.delivered === true || p.status === 'delivered') {
+          continue;
+        }
+
+        const from = p.planned_from || null;
+        const to = p.planned_to || null;
+        const dateValue = from || to || null;
+        const plannedParts = zonedParts(dateValue);
+        const plannedNumber = dateNumber(plannedParts);
+
+        if (plannedNumber && plannedNumber < todayNumber) {
+          continue;
+        }
+
+        seen.add(key);
+
+        let secondaryText = 'Aangekondigd';
+        let secondaryIcon = 'mdi:information-outline';
+        let displayStatus = 'Aangekondigd';
+
+        if (from || to) {
+          const hours = durationHours(from, to);
+
+          if (hours !== null && hours > 12) {
+            secondaryText = 'Tijdvak nog niet bekend';
+          } else {
+            let timing = '';
+
+            if (from) timing += timeText(from);
+            if (from && to) timing += ' - ';
+            if (to) timing += timeText(to);
+
+            secondaryText = timing || 'Tijdvak nog niet bekend';
+          }
+
+          secondaryIcon = 'mdi:clock-outline';
+          displayStatus = 'Onderweg';
+        }
+
+        if (p.status === 'registered') {
+          secondaryText = 'Aangekondigd';
+          secondaryIcon = 'mdi:information-outline';
+          displayStatus = 'Aangekondigd';
+        }
+
+        if (
+          p.status === 'in_transit' ||
+          p.status === 'out_for_delivery'
+        ) {
+          displayStatus = 'Onderweg';
+        }
+
+        // Show a pickup destination before the parcel is ready.
+        // The right-hand label remains the actual transport status.
+        if (
+          isPickupDestination(p) &&
+          !isReadyForPickup(p)
+        ) {
+          secondaryIcon = 'mdi:map-marker-outline';
+          secondaryText = `Naar ${p.pickup_point}`;
+        }
+
+        items.push({
+          sender: senderName(p.sender, p.carrier),
+          displayStatus,
+          color: carrierColor(p.carrier),
+          icon: 'mdi:truck-fast-outline',
+          secondaryIcon,
+          secondaryText,
+          priority: 2,
+          sort:
+            parseDate(dateValue)?.getTime() ??
+            Number.MAX_SAFE_INTEGER,
+          dateParts: plannedParts
+        });
+      }
+
+      // =========================================================
+      // Ordering
+      //
+      // 0 = ready for pickup
+      // 1 = delivered / collected today
+      // 2 = remaining parcels
+      // =========================================================
+
+      items.sort((a, b) => {
+        if (a.priority !== b.priority) {
+          return a.priority - b.priority;
+        }
+
+        if (a.priority === 1) {
+          if (a.sort !== b.sort) return b.sort - a.sort;
+        } else {
+          if (a.sort !== b.sort) return a.sort - b.sort;
+        }
+
+        return String(a.sender).localeCompare(String(b.sender), 'nl');
+      });
+
+      // =========================================================
+      // Group by day
+      // =========================================================
+
+      const groups = {};
+
+      for (const p of items) {
+        let groupKey = 'unknown';
+
+        if (p.dateParts) {
+          groupKey = [
+            p.dateParts.year,
+            p.dateParts.month,
+            p.dateParts.day
+          ].join('-');
+        }
+
+        if (!groups[groupKey]) {
+          groups[groupKey] = [];
+        }
+
+        groups[groupKey].push(p);
+      }
+
+      const groupKeys = Object.keys(groups);
+
+      if (groupKeys.length === 0) {
+        return `
+          <div class="pkg-root">
+            <div class="pkg-empty">
+              Geen pakketten onderweg
+            </div>
+          </div>
+        `;
+      }
+
+      // =========================================================
+      // Dynamic height
+      //
+      // 1 item = 56px
+      // 2 items = 120px
+      // 3 items = 184px
+      // 4 items = 248px
+      // =========================================================
+
+      const itemCount = items.length;
+      const groupCount = groupKeys.length;
+      const cardHeight = (itemCount * 64) - 8;
+      const verticalCardPadding = 12;
+      const dayGap = 11;
+      const totalDayGap = Math.max(groupCount - 1, 0) * dayGap;
+
+      const rowHeight =
+        (cardHeight - verticalCardPadding - totalDayGap) /
+        itemCount;
+
+      // =========================================================
+      // Render
+      // =========================================================
+
+      let output = `
+        <div
+          class="pkg-root"
+          style="--pkg-row-height:${rowHeight}px;"
+        >
+      `;
+
+      groupKeys.forEach((groupKey, groupIndex) => {
+        const parcels = groups[groupKey];
+        const parts = parcels[0].dateParts;
+
+        if (groupIndex > 0) {
+          output += `<div class="pkg-separator"></div>`;
+        }
+
+        output += `
+          <table class="pkg-day-table">
+            <tbody>
+        `;
+
+        parcels.forEach((p, index) => {
+          output += `<tr>`;
+
+          if (index === 0) {
+            output += `
+              <td
+                class="pkg-date-column"
+                rowspan="${parcels.length}"
+              >
+                ${
+                  parts
+                    ? `
+                      <div class="pkg-weekday">
+                        ${weekdayText(parts)}
+                      </div>
+                      <div class="pkg-day">
+                        ${parts.day}
+                      </div>
+                    `
+                    : `
+                      <div class="pkg-day">?</div>
+                    `
+                }
+              </td>
+            `;
+          }
+
+          output += `
+            <td
+              class="pkg-event"
+              style="border-inline-start:1px solid ${p.color};"
+            >
+              <div class="pkg-event-content">
+                <div class="pkg-summary-row">
+                  <div class="pkg-summary">
+                    <ha-icon
+                      class="pkg-label-icon"
+                      icon="${p.icon}"
+                      style="color:${p.color};"
+                    ></ha-icon>
+
+                    <span class="pkg-event-title">
+                      ${escapeHtml(p.sender)}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="pkg-time-location">
+                  <div class="pkg-time">
+                    <div class="pkg-time-actual">
+                      <ha-icon icon="${p.secondaryIcon}"></ha-icon>
+                      <span>${escapeHtml(p.secondaryText)}</span>
+                    </div>
+
+                    <div class="pkg-event-status">
+                      ${escapeHtml(p.displayStatus)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          `;
+
+          output += `</tr>`;
+        });
+
+        output += `
+            </tbody>
+          </table>
+        `;
+      });
+
+      output += `</div>`;
+      return output;
+    ]]]
+
+extra_styles: |
+
+  #container {
+    padding: 0 !important;
+    height: 100%;
+  }
+
+  #packages {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+  }
+
+  .pkg-root {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .pkg-day-table {
+    width: 100%;
+    table-layout: fixed;
+    border-spacing: 0;
+    border-collapse: separate;
+    margin: 0;
+    border: none !important;
+  }
+
+  .pkg-date-column {
+    width: 35px;
+    min-width: 35px;
+    max-width: 35px;
+    box-sizing: content-box;
+    vertical-align: middle;
+    text-align: center;
+    position: relative;
+    padding-left: 8px;
+    padding-right: 12px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .pkg-weekday {
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 14px;
+    font-weight: 400;
+    color: var(--primary-text-color);
+  }
+
+  .pkg-day {
+    font-family: inherit;
+    font-size: 20px;
+    line-height: 20px;
+    font-weight: 500;
+    color: var(--primary-text-color);
+  }
+
+  .pkg-event {
+    height: var(--pkg-row-height);
+    padding: 4px 0 4px 12px;
+    border-radius: 0;
+    vertical-align: middle;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .pkg-event-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    height: 100%;
+  }
+
+  .pkg-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .pkg-summary {
+    flex: 1;
+    min-width: 0;
+    margin-right: 12px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-family: inherit;
+    font-size: 17px;
+    line-height: 1.2;
+  }
+
+  .pkg-event-title {
+    display: inline;
+    vertical-align: middle;
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--primary-text-color);
+  }
+
+  .pkg-label-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    margin-right: 4px;
+    width: 17px;
+    height: 17px;
+    --mdc-icon-size: 17px;
+  }
+
+  .pkg-time-location {
+    display: flex;
+    flex-direction: column;
+    margin-top: 2px;
+    min-width: 0;
+  }
+
+  .pkg-time {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    column-gap: 8px;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--secondary-text-color);
+  }
+
+  .pkg-time-actual {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .pkg-time-actual ha-icon {
+    flex-shrink: 0;
+    margin-right: 4px;
+    width: 14px;
+    height: 14px;
+    --mdc-icon-size: 14px;
+    color: var(--secondary-text-color);
+  }
+
+  .pkg-time-actual span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pkg-event-status {
+    flex-shrink: 0;
+    margin-left: auto;
+    margin-right: 12px;
+    white-space: nowrap;
+    text-align: right;
+    color: var(--secondary-text-color);
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .pkg-separator {
+    position: relative;
+    flex: 0 0 11px;
+    width: calc(100% - 8px);
+    height: 11px;
+    margin-left: 8px;
+    box-sizing: border-box;
+  }
+
+  .pkg-separator::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 5px;
+    height: 1px;
+    background: var(
+      --mdc-dialog-scroll-divider-color,
+      rgba(0, 0, 0, .12)
+    );
+  }
+
+  .pkg-empty {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 8px;
+    color: var(--secondary-text-color);
+    font-family: inherit;
+    font-size: 12px;
+  }
+
+grid_options:
+  columns: full
+  rows: auto
