@@ -71,7 +71,7 @@ Delivered or collected parcels remain visible for the rest of the delivery day a
 A parcel that is going to a pickup point but has not yet arrived there is shown with a location line such as:
 
 ```text
-Naar DA Drogisterij Monique
+Naar pakketpunt
 ```
 
 Once it is actually ready for collection, the status changes to `Afhalen` and the parcel is moved to the top of the card.
