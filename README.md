@@ -2,7 +2,7 @@
 
 A compact Home Assistant parcel card for displaying parcel deliveries in a calendar-style layout.
 
-The card is built for the **Parcel Aggregator** entities and uses **custom:button-card** for rendering.
+The card is built for the **[Parcel Aggregator](https://github.com/ha-parcel-integrations/ha-parcel-aggregator/)** entities and uses **custom:button-card** for rendering.
 
 ## Preview
 
