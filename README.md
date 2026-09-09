@@ -4,6 +4,13 @@ A compact Home Assistant parcel card for displaying parcel deliveries in a calen
 
 The card is built for the **Parcel Aggregator** entities and uses **custom:button-card** for rendering.
 
+## Preview
+
+<p align="center">
+  <img src="assets/parcel-dashboard-light.png" alt="Parcel Dashboard Card in Home Assistant light theme" width="49%">
+  <img src="assets/parcel-dashboard-dark.png" alt="Parcel Dashboard Card in Home Assistant dark theme" width="49%">
+</p>
+
 ## Features
 
 - Shows parcels grouped by day
