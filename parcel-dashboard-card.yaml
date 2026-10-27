@@ -90,11 +90,15 @@ styles:
             ].join('|');
           };
 
-          const isReadyForPickup = (p) =>
+          const isReadyForPickup = (p, inAwaitingSensor = false) =>
             p.delivered !== true &&
-            p.status === 'at_pickup_point' &&
-            p.pickup === true &&
-            Boolean(p.pickup_point);
+            p.status !== 'delivered' &&
+            (inAwaitingSensor || p.status === 'at_pickup_point');
+
+          const isPickupDestination = (p) =>
+            p.delivered !== true &&
+            p.status !== 'delivered' &&
+            (p.pickup === true || Boolean(p.pickup_point));
 
           const deliveredKeys = new Set(
             delivered.map((p) => parcelKey(p))
@@ -104,13 +108,13 @@ styles:
           let count = 0;
 
           // 1. Ready for pickup
-          for (const p of [...awaiting, ...incoming]) {
+          for (const [index, p] of [...awaiting, ...incoming].entries()) {
             const key = parcelKey(p);
 
             if (
               seen.has(key) ||
               deliveredKeys.has(key) ||
-              !isReadyForPickup(p)
+              !isReadyForPickup(p, index < awaiting.length)
             ) {
               continue;
             }
@@ -146,7 +150,7 @@ styles:
             const dateValue = p.planned_from || p.planned_to || null;
             const plannedNumber = dateNumber(zonedParts(dateValue));
 
-            if (plannedNumber && plannedNumber < todayNumber) {
+            if (plannedNumber && plannedNumber < todayNumber && !isPickupDestination(p)) {
               continue;
             }
 
@@ -341,16 +345,15 @@ custom_fields:
       // four conditions below are true.
       // =========================================================
 
-      const isReadyForPickup = (p) =>
+      const isReadyForPickup = (p, inAwaitingSensor = false) =>
         p.delivered !== true &&
-        p.status === 'at_pickup_point' &&
-        p.pickup === true &&
-        Boolean(p.pickup_point);
+        p.status !== 'delivered' &&
+        (inAwaitingSensor || p.status === 'at_pickup_point');
 
       const isPickupDestination = (p) =>
         p.delivered !== true &&
-        p.pickup === true &&
-        Boolean(p.pickup_point);
+        p.status !== 'delivered' &&
+        (p.pickup === true || Boolean(p.pickup_point));
 
       // =========================================================
       // Current date
@@ -387,13 +390,13 @@ custom_fields:
       // Always first, shown on the current day, green closed box.
       // =========================================================
 
-      for (const p of [...awaitingPickup, ...incoming]) {
+      for (const [index, p] of [...awaitingPickup, ...incoming].entries()) {
         const key = parcelKey(p);
 
         if (
           seen.has(key) ||
           deliveredKeys.has(key) ||
-          !isReadyForPickup(p)
+          !isReadyForPickup(p, index < awaitingPickup.length)
         ) {
           continue;
         }
@@ -406,7 +409,7 @@ custom_fields:
           color: completedColor,
           icon: 'mdi:package-variant-closed',
           secondaryIcon: 'mdi:map-marker-outline',
-          secondaryText: p.pickup_point,
+          secondaryText: p.pickup_point || 'Klaar om af te halen',
           priority: 0,
           sort: 0,
           dateParts: todayParts
@@ -466,7 +469,7 @@ custom_fields:
         const plannedParts = zonedParts(dateValue);
         const plannedNumber = dateNumber(plannedParts);
 
-        if (plannedNumber && plannedNumber < todayNumber) {
+        if (plannedNumber && plannedNumber < todayNumber && !isPickupDestination(p)) {
           continue;
         }
 
@@ -512,6 +515,7 @@ custom_fields:
         // The right-hand label remains the actual transport status.
         if (
           isPickupDestination(p) &&
+          Boolean(p.pickup_point) &&
           !isReadyForPickup(p)
         ) {
           secondaryIcon = 'mdi:map-marker-outline';
@@ -529,7 +533,10 @@ custom_fields:
           sort:
             parseDate(dateValue)?.getTime() ??
             Number.MAX_SAFE_INTEGER,
-          dateParts: plannedParts
+          dateParts:
+            plannedNumber && plannedNumber < todayNumber
+              ? todayParts
+              : plannedParts
         });
       }
 
