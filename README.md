@@ -15,7 +15,7 @@ The card is built for the **[Parcel Aggregator](https://github.com/ha-parcel-int
 
 - Shows parcels grouped by day
 - Carrier-specific colors for PostNL, DHL, DPD, GLS and Dragonfly
-- Packages ready for pickup are shown first
+- Packages ready for pickup are shown first and stay visible until collection, even after the expected delivery date
 - Packages delivered or collected today remain visible until the end of the day
 - Packages destined for a pickup point show the pickup location before they are ready for collection
 - Distinguishes between `Aangekondigd`, `Onderweg`, `Afhalen`, `Bezorgd` and `Afgehaald`
@@ -58,16 +58,11 @@ A parcel is shown as underway when Parcel Aggregator reports an active transit s
 
 ### Afhalen
 
-A parcel is only shown as ready for pickup when all of the following are true:
+A parcel is shown as ready for pickup if it appears in the `sensor.parcel_aggregator_awaiting_pickup` list **or** reports `status: at_pickup_point`. It must not have `delivered: true` or `status: delivered`. A missing pickup-point name does not hide it.
 
-```text
-delivered != true
-status == at_pickup_point
-pickup == true
-pickup_point is present
-```
+`pickup: true` by itself does **not** indicate that a parcel is ready for collection; it can simply mean that the destination is a pickup point.
 
-This intentionally avoids interpreting `pickup: true` by itself as “ready for pickup”. It can simply mean that the destination is a pickup point.
+Ready-for-pickup parcels stay visible on today's row, regardless of their old delivery estimate, until the source reports them as collected or delivered. Parcels still en route to a pickup point are also not hidden merely because their estimated delivery date passed. The card can only display parcels that the source integrations continue to provide.
 
 ### Bezorgd / Afgehaald
 
@@ -81,7 +76,7 @@ A parcel that is going to a pickup point but has not yet arrived there is shown 
 Naar pakketpunt
 ```
 
-Once it is actually ready for collection, the status changes to `Afhalen` and the parcel is moved to the top of the card.
+Once it is actually ready for collection, the status changes to `Afhalen` and the parcel is moved to the top of the card. If the pickup point name is missing, the card displays `Klaar om af te halen`.
 
 ## Colors
 
